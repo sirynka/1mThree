@@ -24,6 +24,7 @@ const options = {
 const MOUSE_BTN_LEFT   = 0
 const MOUSE_BTN_MIDDLE = 1
 const MOUSE_BTN_RIGHT  = 2
+let cooldown = false
 
 init()
 animate()
@@ -141,6 +142,7 @@ function onWindowResize() {
 }
 
 function onPointerDown(event) {
+    if (cooldown) return
     if (!options.drawMode) return
 
     const mouse = new THREE.Vector2(
@@ -173,6 +175,8 @@ function onPointerDown(event) {
         batch.set(userDoc, { timestamp: firebase.firestore.FieldValue.serverTimestamp() })
         batch.set(pixelDoc, { color: options.color })
         batch.commit().catch(err => console.log(err))
+        setTimeout(() => cooldown = false, 1000)
+        cooldown = true
     }
 
     if (event.button == MOUSE_BTN_RIGHT) {
