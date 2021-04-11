@@ -10,7 +10,7 @@ let renderer, scene, camera
 let controls, stats
 let map
 
-const size = 100
+const size = 32
 const options = {
     color: [
         Math.floor(Math.random() * 255),
@@ -24,7 +24,6 @@ const options = {
 const MOUSE_BTN_LEFT   = 0
 const MOUSE_BTN_MIDDLE = 1
 const MOUSE_BTN_RIGHT  = 2
-let cooldown = false
 
 init()
 animate()
@@ -57,19 +56,55 @@ function firebaseInit() {
         color.forEach((byte, i) => data[doc.id * 3 + i] = byte)
     }
 
-    const collection = firebase
-        .firestore()
-        .collection('pixels')
+    const firestore = firebase.firestore()
+    firestore.settings({ cacheSizeBytes: firebase.firestore.CACHE_SIZE_UNLIMITED })
+    firestore.enablePersistence()
 
-    collection
+    const timestampsDoc = firestore.collection('updates').doc('timestamps')
+    const pixelsCollection = firestore.collection('pixels')
+
+    const fetchData = (source) => {
+        pixelsCollection
+            .get({ source })
+            .then(docs => {
+                docs.forEach(doc => setPixelColor(doc))
+                map.needsUpdate = true
+            })
+    }
+
+    const fetchUpdates = (cachedTimestamps) => {
+        timestampsDoc
         .get()
-        .then(querySnapshot => {
-            querySnapshot
-                .forEach(doc => setPixelColor(doc))
-            map.needsUpdate = true
-        })
+        .then(doc => {
+            const docsToUpdate = []
+            const freshTimestamps = Object.entries(doc.data())
+            freshTimestamps.forEach(entry => {
+                const [key, timestamp] = entry
+                const cachedTimestamp = cachedTimestamps[key]
+                if (cachedTimestamp && timestamp <= cachedTimestamp) return
+                docsToUpdate.push(key)
+            })
 
-    collection
+            if (docsToUpdate.length == 0) return
+
+            pixelsCollection
+            .where('__name__', 'in', docsToUpdate)
+            .get()
+            .then(docs => {
+                docs.forEach(doc => setPixelColor(doc))
+                map.needsUpdate = true
+            })
+        })
+    }
+
+    timestampsDoc
+        .get({ source: 'cache' })
+        .then(doc => fetchUpdates(doc.data()))
+        .catch(() => fetchData('default'))
+
+    fetchData('cache')
+
+    pixelsCollection
         .onSnapshot(snapshot => {
             snapshot
                 .docChanges()
@@ -77,7 +112,6 @@ function firebaseInit() {
             map.needsUpdate = true
         })
 }
-
 
 function init() {
     renderer = new THREE.WebGLRenderer()
@@ -111,7 +145,7 @@ function init() {
     }
 
     const data = new Uint8Array(options.color.length * size * size)
-        .map(() => 255) // Math.floor(Math.random() * 255))
+        .map(() => 255) //Math.floor(Math.random() * 255))
 
     const texture = new THREE.DataTexture(data, size, size, THREE.RGBFormat)
     const geometry = new THREE.PlaneGeometry()
@@ -142,7 +176,6 @@ function onWindowResize() {
 }
 
 function onPointerDown(event) {
-    if (cooldown) return
     if (!options.drawMode) return
 
     const mouse = new THREE.Vector2(
@@ -169,14 +202,12 @@ function onPointerDown(event) {
         const auth = firebase.auth()
       
         const batch = db.batch()
-        const userDoc = db.collection('users').doc(auth.currentUser.uid)
         const pixelDoc = db.collection('pixels').doc(`${idx}`)
+        const updateDoc = db.collection('updates').doc('timestamps')
 
-        batch.set(userDoc, { timestamp: firebase.firestore.FieldValue.serverTimestamp() })
+        batch.set(updateDoc, { [idx]: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true })
         batch.set(pixelDoc, { color: options.color })
-        batch.commit().catch(err => console.log(err))
-        setTimeout(() => cooldown = false, 1000)
-        cooldown = true
+        batch.commit()
     }
 
     if (event.button == MOUSE_BTN_RIGHT) {
