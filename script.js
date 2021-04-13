@@ -25,6 +25,12 @@ const MOUSE_BTN_LEFT = 0
 const MOUSE_BTN_MIDDLE = 1
 const MOUSE_BTN_RIGHT = 2
 
+const [second, seconds] = [1000, 1000]
+const [minute, minutes] = [second * 60, seconds * 60]
+const [hour, hours] = [minute * 60, minutes * 60]
+let lastUserAction
+let listener
+
 init()
 animate()
 firebaseInit()
@@ -90,7 +96,7 @@ function firebaseInit() {
                     pixelsCollection
                         .doc(key)
                         .get()
-                        .then(doc => doc.forEach(doc => setPixelColor(doc)))
+                        .then(doc => setPixelColor(doc))
                 })
                 map.needsUpdate = true
             })
@@ -103,7 +109,7 @@ function firebaseInit() {
 
     fetchData('cache')
 
-    pixelsCollection
+    listener = pixelsCollection
         .onSnapshot(snapshot => {
             snapshot
                 .docChanges()
@@ -153,8 +159,11 @@ function init() {
     scene.add(mesh)
     map = texture
 
-    window.addEventListener('pointerdown', onPointerDown)
     window.addEventListener('resize', onWindowResize)
+    window.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('pointermove', onPointerMove)
+    setInterval(onOneMinuteTick, 1 * minute)
+    lastUserAction = Date.now()
 }
 
 function animate() {
@@ -211,4 +220,15 @@ function onPointerDown(event) {
     if (event.button == MOUSE_BTN_RIGHT) {
         options.color = options.color.map((byte, i) => data[idx * 3 + i])
     }
+}
+
+function onPointerMove(event) {
+    lastUserAction = Date.now()
+}
+
+function onOneMinuteTick() {
+    if (Date.now() - lastUserAction < 1 * minute) return
+    listener()
+    alert("You have been disconnected due to inactivity")
+    location.reload()
 }
